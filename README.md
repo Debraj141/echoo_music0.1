@@ -4,7 +4,7 @@ Echo is a small, dependency-free music-discovery MVP. It keeps the existing brow
 
 ## Run locally
 
-Requirements: Node.js 20 or newer. No npm packages are required.
+Requirements: Node.js 20 or newer. No npm packages are requireD.
 
 1. Copy `.env.example` to `.env`.
 2. Set `LLM_API_KEY` to enable LLM intent parsing. Leave it empty to use the local fallback.
