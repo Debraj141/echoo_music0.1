@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#09100c"><title>Echo — Music Discovery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"><script src="script.js" defer></script>
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+<a class="brand" href="#" data-view="home"><span class="logo">e</span> echo<span class="green">.</span></a>
+<p class="label">DISCOVER</p>
+<button class="nav active" data-view="home">⌂ &nbsp; Home</button><button class="nav" data-view="search">⌕ &nbsp; Search music</button><button class="nav" data-view="explore">✳ &nbsp; Explore moods</button>
+<p class="label library-label">YOUR LIBRARY</p>
+<button class="nav" data-view="liked">♡ &nbsp; Liked songs <small id="likedCount">0</small></button><button class="nav" data-view="playlist">▤ &nbsp; My playlist <small id="playlistCount">0</small></button><button class="nav" data-view="recent">◷ &nbsp; Recently played</button>
+<div class="side-bottom"><div class="voice-card"><div><b>Hands-free mode</b><p>Control music with your voice.</p></div><button id="sideMic">🎙</button></div><p class="tagline">Your music. Your mood. Your discovery.</p></div>
+</aside>
+<main class="main">
+<header class="topbar"><button id="menuBtn" class="menu">☰</button><div class="crumb">YOUR SPACE <span>/</span> <b id="pageName">Home</b></div><button id="voiceBtn" class="mic" title="Voice search">🎙</button></header>
+
+<section class="view visible" id="homeView">
+<div class="hero"><div class="hero-copy"><p class="eyebrow">● YOUR PERSONAL SOUNDTRACK</p><h1>Find the sound<br>of <em>right now.</em></h1><p>Describe the moment. Discover music that fits it — or takes you somewhere new.</p>
+<form id="heroForm" class="searchbar"><span>⌕</span><input id="heroInput" placeholder="Try “Arijit Singh” or “lofi study”"><button>Discover ↗</button></form>
+<div class="hints">TRY <button data-query="lofi study">Study focus</button><button data-query="workout hits">Workout energy</button><button data-query="acoustic love songs">Soft romance</button></div>
+        <div class="ai-discovery">
+          <div class="ai-label"><span>✳</span> LANGUAGE-STEERABLE DISCOVERY</div>
+          <form id="recommendForm" class="recommend-form">
+            <input id="recommendInput" aria-label="Describe the music you want" placeholder="e.g. calm music for a 3 a.m. study session">
+            <button type="submit">Find my sound ↗</button>
+          </form>
+          <div class="recommend-options">
+            <span>DISCOVERY MODE</span>
+            <div class="mode-switch" role="group" aria-label="Discovery mode">
+              <button type="button" class="mode-btn active" data-mode="familiar">Familiar</button>
+              <button type="button" class="mode-btn" data-mode="nonhabitual">Non-habitual</button>
+            </div>
+            <small id="modeDescription">Your known genres, artists and listening patterns.</small>
+          </div>
+        </div></div>
+<div class="hero-art"><div class="vinyl"><span>e</span></div><b>♫</b></div></div>
+<div class="section-head recommendation-heading"><div><p class="eyebrow">MATCHED TO YOUR MOMENT</p><h2>Your discoveries</h2></div><span id="recommendStatus" class="recommend-status">Describe a moment to get started</span></div>
+        <div class="tracks" id="recommendResults"><div class="empty">Your personalized discoveries will appear here.</div></div>
+        <div class="section-head"><div><p class="eyebrow">START WITH A FEELING</p><h2>Explore your mood</h2></div><button class="link" data-view="explore">All moods ↗</button></div>
+<div class="moods">
+<button class="mood calm" data-query="calm relaxing music"><b>☁ Calm & focus</b><small>Slow down and reset</small></button>
+<button class="mood energy" data-query="upbeat workout music"><b>ϟ Energy boost</b><small>Move with the rhythm</small></button>
+<button class="mood love" data-query="romantic acoustic songs"><b>♡ Love & feels</b><small>For softer moments</small></button>
+<button class="mood party" data-query="party dance hits"><b>✦ Party mode</b><small>Turn the moment up</small></button></div>
+<div class="section-head"><div><p class="eyebrow">FRESH FINDS</p><h2>Popular discoveries</h2></div><button class="link" data-view="search">Search catalogue ↗</button></div>
+<div class="tracks" id="homeResults"><div class="empty">Loading music…</div></div>
+</section>
+
+<section class="view" id="searchView"><div class="intro"><p class="eyebrow">THE CATALOGUE</p><h1>Search <em>anything.</em></h1><p>Look up songs, artists and albums.</p></div>
+<form id="searchForm" class="searchbar search-large"><span>⌕</span><input id="searchInput" placeholder="Search songs, artists or albums…"><button>Search</button></form>
+<div class="filter"><span id="searchStatus">Search the music catalogue to get started.</span><select id="mediaFilter"><option value="music">Songs</option><option value="musicVideo">Music videos</option></select></div><div class="tracks" id="searchResults"></div></section>
+
+<section class="view" id="exploreView"><div class="intro"><p class="eyebrow">FOLLOW THE FEELING</p><h1>Pick a <em>mood.</em></h1><p>Choose a vibe to find matching music.</p></div><div class="moods mood-large">
+<button class="mood calm" data-query="ambient chill relaxing"><b>☁ Calm & focus</b><small>Ambient, acoustic, lofi</small></button><button class="mood energy" data-query="pop workout hits"><b>ϟ Energy boost</b><small>Pop, dance, high energy</small></button><button class="mood love" data-query="romantic acoustic love"><b>♡ Love & feels</b><small>Romantic and mellow</small></button><button class="mood party" data-query="dance electronic party"><b>✦ Party mode</b><small>Dance and electronic</small></button><button class="mood blue" data-query="sad indie songs"><b>☾ Late night</b><small>Indie and introspective</small></button><button class="mood gold" data-query="classic hits timeless"><b>✺ Timeless classics</b><small>Old favourites</small></button></div><div class="section-head"><h2>Matching tracks</h2></div><div class="tracks" id="exploreResults"></div></section>
+<section class="view" id="likedView"><div class="intro"><p class="eyebrow">YOUR COLLECTION</p><h1>Liked <em>songs.</em></h1><p>Tracks you have saved.</p></div><div class="tracks" id="likedResults"></div></section>
+
+<section class="view" id="playlistView"><div class="intro"><p class="eyebrow">MADE BY YOU</p><h1>My <em>playlist.</em></h1><p>Your saved tracks in one place.</p><button class="secondary" id="clearPlaylist">Clear playlist</button></div><div class="tracks" id="playlistResults"></div></section>
+<section class="view" id="recentView"><div class="intro"><p class="eyebrow">BACK IN THE GROOVE</p><h1>Recently <em>played.</em></h1><p>Your latest listening history on this device.</p></div><div class="tracks" id="recentResults"></div></section>
+</main></div>
+
+<footer class="player">
+<div class="now"><img id="playerArt" src="https://placehold.co/100x100/1b2922/9be7b0?text=E" alt="Artwork"><div><b id="playerTitle">Choose a track</b><small id="playerArtist">Your next favourite is waiting</small></div><button id="playerLike">♡</button></div>
+<div class="controls"><div><button id="prevBtn">⏮</button><button id="playBtn" class="play">▶</button><button id="nextBtn">⏭</button></div><div class="timeline"><small id="currentTime">0:00</small><input id="seekBar" type="range" min="0" max="30" value="0"><small id="duration">0:30</small></div></div>
+<div class="volume">🔊 <input id="volumeBar" type="range" min="0" max="1" step=".01" value=".8"><button id="queueBtn">☷</button></div><audio id="audio" preload="none"></audio>
+</footer>
+<div id="toast" class="toast"></div>
+<div class="modal" id="voiceModal"><div class="modal-box"><button id="closeModal" class="close">×</button><div class="big-mic">🎙</div><p class="eyebrow">VOICE CONTROL</p><h2 id="voiceTitle">Ready when you are</h2><p id="voiceHelp">Say “search Arijit Singh”, “pause”, “play” or “next song”.</p><button id="startVoice" class="primary">Start listening</button><small>Voice support depends on your browser. Allow microphone access when asked.</small></div></div>
+</body></html>
