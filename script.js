@@ -1,7 +1,5 @@
 'use strict';
-// Echo: language-steerable music discovery with local semantic ranking.
-// Catalogue metadata/previews come from the public iTunes Search API.
-// This is a frontend heuristic recommender, not a connected LLM or Spotify model.
+// The LLM only interprets prompts; catalogue retrieval and ranking remain local.
 const API='https://itunes.apple.com/search';
 const $=id=>document.getElementById(id);
 const audio=$('audio');
@@ -9,27 +7,40 @@ const read=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{retur
 const state={
   results:[],queue:[],index:-1,current:null,collections:{},
   liked:read('echo-liked',[]),playlist:read('echo-playlist',[]),recent:read('echo-recent',[]),
-  preferences:read('echo-preferences',{genres:{},artists:{},skipped:[],replayed:[]}),
+  preferences:EchoRecommendation.loadPreferences(localStorage),
   mode:'familiar',recommendations:[]
 };
 const requests={search:{},recommend:0};
-const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const save=(k,v)=>{
+  try{
+    if(k==='echo-preferences')EchoRecommendation.savePreferences(localStorage,v);
+    else localStorage.setItem(k,JSON.stringify(v));
+    return true;
+  }catch{toast('Could not save your library. Check browser storage settings.');return false}
+};
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(s){$('toast').textContent=s;$('toast').classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').classList.remove('show'),2300)}
 function normalize(t){
-  const track={id:String(t.trackId||t.collectionId),title:t.trackName||t.collectionName||'Unknown track',
-    artist:t.artistName||'Unknown artist',art:(t.artworkUrl100||'').replace('100x100bb','600x600bb'),
-    preview:t.previewUrl||'',url:t.trackViewUrl||'',genre:t.primaryGenreName||'Music'};
+  const title=t.trackName||t.collectionName||'Unknown track';
+  const artist=t.artistName||'Unknown artist';
+  const genre=t.primaryGenreName||'Music';
+  const track={id:String(t.trackId||t.collectionId||''),title,
+    artist,artistId:t.artistId||null,art:(t.artworkUrl100||'').replace('100x100bb','600x600bb'),
+    preview:t.previewUrl||'',url:t.trackViewUrl||'',genre,collection:t.collectionName||'',
+    kind:t.kind||'song',durationMs:Number.isFinite(t.trackTimeMillis)?t.trackTimeMillis:null,
+    country:t.country||null,releaseDate:t.releaseDate||null,language:'unknown',tempo:null};
   track.semanticId=semanticId(track);
   return track;
 }
 function semanticId(t){
-  const raw=[t.title,t.artist,t.genre].join('|').toLowerCase();
-  let hash=2166136261;
-  for(let i=0;i<raw.length;i++){hash^=raw.charCodeAt(i);hash=Math.imul(hash,16777619)}
-  return 'ECHO-'+(hash>>>0).toString(16).toUpperCase().padStart(8,'0');
+  return EchoRecommendation.semanticRepresentation(t).semanticId;
 }
-function unique(a){return [...new Map(a.map(x=>[x.id,x])).values()]}
+function unique(a){
+  return [...new Map(a.map(track=>[
+    `${track.title.trim().toLowerCase()}|${track.artist.trim().toLowerCase()}`,
+    track
+  ])).values()];
+}
 function card(t,showReason=false){
   const liked=state.liked.some(x=>x.id===t.id),added=state.playlist.some(x=>x.id===t.id);
   const reason=showReason&&t.reason?`<p class="why-match">${esc(t.reason)}</p>`:'';
@@ -58,8 +69,14 @@ function view(name){
 async function fetchTracks(term,limit=50,media='music'){
   const entity=media==='musicVideo'?'musicVideo':'song';
   const p=new URLSearchParams({term,entity,media,limit:String(limit),country:'US'});
-  const r=await fetch(`${API}?${p}`);if(!r.ok)throw Error('Catalogue request failed');
-  const data=await r.json();return unique((data.results||[]).map(normalize).filter(t=>t.id&&t.title));
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+  try{
+    const r=await fetch(`${API}?${p}`,{signal:controller.signal});
+    if(!r.ok)throw Error(`Catalogue request failed (${r.status})`);
+    const data=await r.json();
+    if(!Array.isArray(data.results))throw Error('Catalogue returned an invalid response');
+    return unique(data.results.map(normalize).filter(t=>t.id&&t.title));
+  }finally{clearTimeout(timeout)}
 }
 async function search(term,target='searchResults'){
   term=term.trim();if(!term)return toast('Enter a song, artist or album to search.');
@@ -81,79 +98,55 @@ async function search(term,target='searchResults'){
     if(target==='searchResults')$('searchStatus').textContent='Search unavailable';toast('Music search failed.');
   }
 }
-// Translate natural-language intent into catalogue search terms and ranking concepts.
-function interpretIntent(prompt){
-  const p=prompt.toLowerCase();
-  const concepts=[
-    {terms:['calm','peaceful','relax','soft','quiet','gentle'],search:'ambient acoustic chill',tags:['ambient','acoustic','new age','classical'],label:'calm and gentle textures'},
-    {terms:['study','focus','work','concentrate','3 a.m.','late night'],search:'lofi instrumental study',tags:['lo-fi','ambient','instrumental','classical'],label:'a focused, low-distraction mood'},
-    {terms:['energy','workout','gym','hype','upbeat'],search:'upbeat pop dance',tags:['pop','dance','electronic','hip-hop'],label:'upbeat energy'},
-    {terms:['sad','melancholy','heartbreak','emotional'],search:'sad indie acoustic',tags:['indie','alternative','acoustic'],label:'reflective, emotional sounds'},
-    {terms:['romantic','love','date'],search:'romantic acoustic love songs',tags:['pop','acoustic','singer songwriter'],label:'warm romantic melodies'},
-    {terms:['party','dance','celebrate'],search:'dance party hits',tags:['dance','electronic','pop'],label:'danceable rhythms'},
-    {terms:['jazz','cafe','coffee'],search:'jazz cafe instrumental',tags:['jazz','blues','instrumental'],label:'a laid-back café atmosphere'},
-    {terms:['rock','guitar'],search:'alternative rock guitar',tags:['rock','alternative','metal'],label:'guitar-led sounds'}
-  ];
-  const matched=concepts.filter(c=>c.terms.some(w=>p.includes(w)));
-  const tags=[...new Set(matched.flatMap(c=>c.tags))];
-  const searchTerms=matched.map(c=>c.search);
-  // Preserve meaningful words from the user's prompt for language-steerable discovery.
-  const cleaned=p.replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/).filter(w=>w.length>2&&!['something','music','songs','song','that','with','for','the','and','want','like','give','find','play','some','session'].includes(w));
-  return {search:searchTerms.length?searchTerms.slice(0,2).join(' '):cleaned.slice(0,5).join(' ')||'chill music',
-    tags,label:matched.map(x=>x.label).join(' + ')||'the mood and language of your request',words:cleaned};
-}
-function scoreTrack(t,intent){
-  const text=(t.title+' '+t.artist+' '+t.genre).toLowerCase();
-  let score=0;
-  for(const tag of intent.tags)if(text.includes(tag))score+=4;
-  for(const word of intent.words)if(word.length>3&&text.includes(word))score+=2;
-  const genre=(t.genre||'Music').toLowerCase(),artist=t.artist.toLowerCase();
-  score+=Math.min(8,(state.preferences.genres[genre]||0)*1.5);
-  score+=Math.min(10,(state.preferences.artists[artist]||0)*2);
-  if(state.liked.some(x=>x.id===t.id))score+=5;
-  if(state.recent.some(x=>x.id===t.id))score+=2;
-  if(state.preferences.skipped.includes(t.id))score-=12;
-  if(state.mode==='familiar'){
-    if(state.preferences.artists[artist])score+=7;
-    if(state.preferences.genres[genre])score+=5;
-    if(state.liked.some(x=>x.artist.toLowerCase()===artist))score+=4;
-  }else{
-    if(state.preferences.artists[artist])score-=5;
-    if(state.preferences.genres[genre])score-=4;
-    if(state.recent.some(x=>x.artist.toLowerCase()===artist))score-=6;
-    if(state.liked.some(x=>x.artist.toLowerCase()===artist))score-=3;
-    if(!state.preferences.artists[artist])score+=2;
-  }
-  return score;
-}
-function explain(t,intent){
-  const genre=t.genre||'music';
-  if(state.mode==='nonhabitual')return `A fresh direction: ${genre} from ${t.artist}, outside your most familiar listening patterns.`;
-  if(state.preferences.artists[t.artist.toLowerCase()])return `A familiar artist you have engaged with before, with a ${genre} sound for ${intent.label}.`;
-  if(state.preferences.genres[genre.toLowerCase()])return `You have shown interest in ${genre}; this track fits ${intent.label}.`;
-  return `${genre} that connects with ${intent.label} and the words in your request.`;
+function interpretIntent(prompt){return EchoRecommendation.parseIntent(prompt)}
+function rankTracks(tracks,intent){return EchoRecommendation.rankTracks(tracks,intent,state.preferences,state.mode)}
+async function understandIntent(prompt){
+  const fallback=interpretIntent(prompt);
+  if(!['http:','https:'].includes(window.location.protocol))return {intent:fallback,source:'local'};
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+  try{
+    const response=await fetch('/api/intent',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt}),
+      signal:controller.signal
+    });
+    if(!response.ok)throw Error(`Intent service returned ${response.status}`);
+    const result=await response.json();
+    if(!result||!result.intent||result.source!=='llm')throw Error('Intent service returned an invalid response');
+    return {intent:EchoRecommendation.normalizeIntent(result.intent,prompt),source:'llm'};
+  }catch{
+    return {intent:fallback,source:'local'};
+  }finally{clearTimeout(timeout)}
 }
 async function recommend(prompt){
   prompt=prompt.trim();if(!prompt)return toast('Describe the moment or mood first.');
+  if(/\b(different from my usual|outside my usual|unfamiliar|something new|new direction)\b/i.test(prompt))setMode('nonhabitual');
   const requestId=++requests.recommend;
   $('recommendStatus').textContent='Understanding your request…';
   $('recommendResults').innerHTML='<div class="empty">Finding tracks that fit your moment…</div>';
   try{
-    const intent=interpretIntent(prompt);
-    let queries=[intent.search];
-    // A second broad query gives the discovery mode more room to find alternatives.
-    if(state.mode==='nonhabitual')queries.push('indie alternative discovery '+intent.search);
+    const {intent,source}=await understandIntent(prompt);
+    if(requests.recommend!==requestId)return;
+    const queries=[intent.search];
+    if(state.mode==='nonhabitual')queries.push(`${intent.search} ${intent.genres[0]||intent.tags[0]||'independent international'}`.trim());
+    else {
+      const familiarGenres=Object.entries(state.preferences.genres).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([g])=>g);
+      if(familiarGenres.length)queries.push(`${familiarGenres.join(' ')} ${intent.search}`);
+      else {
+        const familiarArtist=Object.entries(state.preferences.artists).sort((a,b)=>b[1]-a[1])[0]?.[0];
+        if(familiarArtist)queries.push(`${familiarArtist} ${intent.search}`);
+      }
+    }
     const outcomes=await Promise.allSettled(queries.map(q=>fetchTracks(q,40)));
     if(requests.recommend!==requestId)return;
     const lists=outcomes.filter(x=>x.status==='fulfilled').map(x=>x.value);
     if(!lists.length)throw outcomes.find(x=>x.status==='rejected').reason;
     const tracks=unique(lists.flat());
-    const ranked=tracks.map(t=>({...t,score:scoreTrack(t,intent)}))
-      .sort((a,b)=>b.score-a.score);
-    const chosen=ranked.slice(0,12).map(t=>({...t,reason:explain(t,intent)}));
+    const chosen=rankTracks(tracks,intent);
     state.recommendations=chosen;state.results=tracks;state.queue=chosen;state.index=-1;
     render('recommendResults',chosen,'No matching tracks found. Try describing the mood another way.',true);
-    $('recommendStatus').textContent=`${chosen.length} discoveries · ${state.mode==='familiar'?'Familiar':'Non-habitual'} mode`;
+    $('recommendStatus').textContent=`${chosen.length} discoveries · ${state.mode==='familiar'?'Familiar':'Non-habitual'} · ${source==='llm'?'AI':'Local'} mode`;
     if(!chosen.length)toast('No discoveries found. Try another prompt.');
   }catch{
     if(requests.recommend!==requestId)return;
@@ -167,16 +160,14 @@ function locate(id){
 }
 function learn(t,kind){
   if(!t)return;
-  const genre=(t.genre||'Music').toLowerCase(),artist=t.artist.toLowerCase();
-  if(kind==='like'){state.preferences.genres[genre]=(state.preferences.genres[genre]||0)+2;state.preferences.artists[artist]=(state.preferences.artists[artist]||0)+2}
-  if(kind==='replay'){state.preferences.genres[genre]=(state.preferences.genres[genre]||0)+1;state.preferences.artists[artist]=(state.preferences.artists[artist]||0)+2;state.preferences.replayed.push(t.id)}
-  if(kind==='skip'){state.preferences.skipped=[t.id,...state.preferences.skipped.filter(x=>x!==t.id)].slice(0,300)}
+  state.preferences=EchoRecommendation.recordFeedback(state.preferences,t,kind);
   save('echo-preferences',state.preferences);
 }
 function play(t,q=state.queue){
   if(!t)return;
   if(!t.preview){toast('No preview is available for this track.');if(t.url)window.open(t.url,'_blank','noopener');return}
   state.queue=q.length?q:[t];state.index=state.queue.findIndex(x=>x.id===t.id);state.current=t;
+  learn(t,'play');
   audio.src=t.preview;
   audio.play().then(()=>{
     $('playBtn').textContent='Ⅱ';$('playerTitle').textContent=t.title;$('playerArtist').textContent=t.artist;
@@ -194,7 +185,7 @@ function like(t){
   if(state.current?.id===t.id)$('playerLike').textContent=has?'♡':'♥';
   toast(has?'Removed from liked songs':'Added to liked songs');
 }
-function add(t){if(!t)return;if(state.playlist.some(x=>x.id===t.id))return toast('Already in your playlist');state.playlist.unshift(t);save('echo-playlist',state.playlist);libraries();refresh();toast('Added to your playlist')}
+function add(t){if(!t)return;if(state.playlist.some(x=>x.id===t.id))return toast('Already in your playlist');state.playlist.unshift(t);learn(t,'save');save('echo-playlist',state.playlist);libraries();refresh();toast('Added to your playlist')}
 function skip(t){
   if(!t)return;learn(t,'skip');
   state.queue=state.queue.filter(x=>x.id!==t.id);
@@ -210,6 +201,11 @@ function refresh(){
 }
 function next(dir=1){if(!state.queue.length)return toast('Search for music to start a queue');let i=state.index+dir;if(i<0)i=state.queue.length-1;if(i>=state.queue.length)i=0;play(state.queue[i],state.queue)}
 function time(s){return Number.isFinite(s)?`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`:'0:00'}
+function setMode(mode){
+  state.mode=mode;
+  document.querySelectorAll('.mode-btn').forEach(button=>button.classList.toggle('active',button.dataset.mode===mode));
+  $('modeDescription').textContent=mode==='familiar'?'Your known genres, artists and listening patterns.':'Step outside your usual artists and genres.';
+}
 document.addEventListener('click',e=>{
   const v=e.target.closest('[data-view]');if(v){view(v.dataset.view);return}
   const q=e.target.closest('[data-query]');if(q){
@@ -218,8 +214,7 @@ document.addEventListener('click',e=>{
     return
   }
   const mode=e.target.closest('[data-mode]');if(mode){
-    state.mode=mode.dataset.mode;document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b===mode));
-    $('modeDescription').textContent=state.mode==='familiar'?'Your known genres, artists and listening patterns.':'Step outside your usual artists and genres.';
+    setMode(mode.dataset.mode);
     if($('recommendInput').value.trim())recommend($('recommendInput').value);return;
   }
   const a=e.target.closest('[data-act]');if(a){

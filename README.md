@@ -1,37 +1,67 @@
 # Echo — Language-Steerable Music Discovery
 
-A frontend music discovery prototype inspired by natural-language recommendation systems.
-
-## Files
-- `index.html` — page structure and recommendation controls
-- `style.css` — responsive dark-green visual design
-- `script.js` — catalogue search, semantic ranking, feedback learning, playback and voice commands
+Echo is a small, dependency-free music-discovery MVP. It keeps the existing browser interface and adds an optional server-side LLM intent service, local semantic ranking, iTunes Search catalogue retrieval, and browser-persisted preference feedback.
 
 ## Run locally
-1. Keep all three app files in the same folder.
-2. Open the folder in VS Code.
-3. Run `index.html` with the Live Server extension.
-4. Use Chrome or Edge for the best voice-recognition support.
 
-## Try it
-- `Something calm for a 3 a.m. study session`
-- `Upbeat music for a gym workout`
-- `Melancholy indie music for a rainy evening`
-- `Jazz for a quiet coffee shop`
+Requirements: Node.js 20 or newer. No npm packages are required.
 
-Use **Discover** or the recommendation box for natural-language requests. Use **Search music** when you want direct catalogue results; the selector switches between songs and music videos. Home mood shortcuts generate recommendations, while Explore mood cards show matching catalogue results. Play previews from a track card or the fixed player.
+1. Copy `.env.example` to `.env`.
+2. Set `LLM_API_KEY` to enable LLM intent parsing. Leave it empty to use the local fallback.
+3. Optionally configure `LLM_BASE_URL` and `LLM_MODEL` for an OpenAI-compatible provider.
+4. Start the server from this folder:
 
-## Discovery modes
-- **Familiar** ranks artists and genres you have liked or replayed more highly.
-- **Non-habitual** downranks artists and genres already present in your listening patterns to encourage exploration.
+   ```sh
+   node server.js
+   ```
 
-## Recommendation approach
-1. Interpret the prompt into mood/context concepts and catalogue search terms.
-2. Search the public iTunes Search API for candidate tracks.
-3. Generate a deterministic Echo Semantic ID from each track's title, artist and genre.
-4. Rank candidates against the prompt and selected discovery mode.
-5. Generate a short explanation from track metadata and local preference signals.
-6. Update a local preference profile from like, skip and replay actions.
+5. Open <http://localhost:3000>. Do not open `index.html` directly when using the backend; the frontend calls the same-origin `/api/intent` endpoint. If the endpoint is unavailable or unconfigured, it falls back to local intent parsing.
 
-## Important limitations
-This is a frontend app with a local, language-steerable recommendation heuristic—not a connection to Spotify, NEO, GLIDE, a production LLM, RLHF or DPO. It needs no AI-provider key; catalogue metadata and previews require an internet connection to the public iTunes Search API. Semantic IDs are locally generated metadata hashes, not Spotify IDs or vector embeddings. Explanations are template-based, and preference tuning is a lightweight local heuristic rather than a trained model. iTunes preview availability and duration vary; it does not provide unlimited full-length streaming. Data is stored in browser `localStorage`.
+Run automated tests with:
+
+```sh
+node --test
+```
+
+The equivalent npm scripts are `npm start` and `npm test` (`npm.cmd start` / `npm.cmd test` in PowerShell when script execution is restricted).
+
+## Configuration
+
+Configuration is loaded from the process environment or a local `.env` file:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP port |
+| `HOST` | `127.0.0.1` | Bind address; defaults to loopback |
+| `NODE_ENV` | unset | Set to `production` for deployment; requires HTTPS provider URLs |
+| `LLM_API_KEY` | unset | Secret bearer token for the configured model provider; server-side only |
+| `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
+| `LLM_MODEL` | `gpt-4o-mini` | Provider model name |
+
+The backend sends the prompt to `{LLM_BASE_URL}/chat/completions`, requests JSON output, validates and bounds the returned intent, and returns only structured intent fields to the browser. The key is never sent to or embedded in frontend code. For a local OpenAI-compatible service, use its loopback URL and a model name supported by that service. In production, use HTTPS and protect the server with the deployment platform's normal access controls.
+
+## Recommendation pipeline
+
+1. The browser sends the natural-language prompt to `POST /api/intent`.
+2. When configured, the backend asks an OpenAI-compatible LLM to extract search terms, mood, activity, genres, language, tempo, and energy. Otherwise, or if the endpoint/provider fails, the browser uses the local rule-based parser.
+3. The browser retrieves actual catalogue records from the public iTunes Search API.
+4. `recommendation-core.js` creates a sparse semantic representation from track title, collection, artist, genre, and metadata-derived features. Cosine similarity matches that representation to the prompt intent; Familiar and Non-habitual modes apply different ranking weights, preference signals, and diversity penalties.
+5. Each track keeps its catalogue `id` separate from a deterministic `SID-…` semantic metadata ID. Explanations cite available catalogue fields and label title-derived characteristics as inferences.
+6. Likes, skips, play attempts, successful replays, and preference history are stored in browser `localStorage` and feed subsequent rankings.
+
+## Catalogue, playback, and limitations
+
+- Search and recommendations use the public iTunes Search API; music videos are also available from the search screen. Catalogue access and preview playback require an internet connection.
+- iTunes does not consistently expose mood, BPM, language, or energy. Those fields remain unknown unless supplied, and the local feature inference is a heuristic from title/collection/genre—not measured audio analysis.
+- The semantic representation is a local sparse metadata vector, not a learned embedding or third-party vector database. Semantic IDs are deterministic metadata signatures, not catalogue IDs.
+- The LLM only interprets prompts; it does not supply or verify track metadata and does not rank or explain results. Without `LLM_API_KEY`, discovery remains rule-based. No real LLM provider was available in this repository, so live provider behavior must be verified with the operator's key/model configuration.
+- iTunes previews may be unavailable, fail to play, or be shorter than a full track. Echo does not provide unlimited streaming.
+- User libraries and preferences are local to the browser profile. This MVP has no account system, server-side user database, or cross-device sync.
+- The backend uses a small in-memory per-IP rate limit and binds only to loopback by default. A public deployment needs appropriate proxy-aware rate limiting, authentication/access control, HTTPS, and operational monitoring.
+
+## Files
+
+- `index.html`, `style.css`, `script.js` — existing UI, styling, and browser behavior
+- `recommendation-core.js` — shared intent, semantic representation, ranking, explanation, and feedback logic
+- `server.js` — static file server and secure LLM proxy endpoint
+- `tests/` — Node.js unit and backend tests
